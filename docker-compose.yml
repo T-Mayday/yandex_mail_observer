@@ -1,0 +1,12 @@
+services:
+  mail-observer:
+    build: .
+    container_name: mail-observer
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    environment:
+      - TZ=Europe/Berlin
+    command: python main.py
