@@ -14,7 +14,6 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r /app/requirements.txt
 
 COPY . /app
-
 RUN mkdir -p /app/data
 
-CMD ["python", "main.py"]
+CMD ["python", "-m", "app.main"]

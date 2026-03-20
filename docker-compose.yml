@@ -9,4 +9,4 @@ services:
       - ./data:/app/data
     environment:
       - TZ=Europe/Berlin
-    command: python main.py
+    command: python -m app.main
