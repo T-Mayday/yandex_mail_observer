@@ -1,6 +1,6 @@
 # фильтры писем, чтобы не было рассылок
 
-from formatter import format_sender
+from app.formatter import format_sender
 
 
 def is_mailing(message) -> bool:

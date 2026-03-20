@@ -3,7 +3,7 @@ from typing import Optional
 
 import requests
 
-from config import settings
+from app.config import settings
 
 logger = logging.getLogger("mail_observer.bitrix")
 

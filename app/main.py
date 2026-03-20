@@ -2,13 +2,13 @@ import logging
 import time
 import imaplib
 
-from config import settings
-from filters import is_mailing
-from formatter import decode_mime, format_notification, format_sender
-from imap_client import connect_mail, fetch_headers_by_uid, get_all_uids
-from notifier_console import notify_console
-from notifier_bitrix import Bitrix24WebhookConnector
-from storage import ProcessedMessageStorage
+from app.config import settings
+from app.filters import is_mailing
+from app.formatter import decode_mime, format_notification, format_sender
+from app.imap_client import connect_mail, fetch_headers_by_uid, get_all_uids
+from app.notifier_console import notify_console
+from app.notifier_bitrix import Bitrix24WebhookConnector
+from app.storage import ProcessedMessageStorage
 
 
 logger = logging.getLogger("mail_observer")
