@@ -8,5 +8,5 @@ services:
     volumes:
       - ./data:/app/data
     environment:
-      - TZ=Europe/Berlin
+      - TZ=Asia/Irkutsk
     command: python -m app.main
