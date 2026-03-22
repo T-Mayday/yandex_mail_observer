@@ -1,5 +1,3 @@
-# Форматы сообщения
-
 from datetime import datetime
 from email.header import decode_header
 from email.utils import parseaddr, parsedate_to_datetime
@@ -84,15 +82,28 @@ def format_date_ru(date_str: str) -> str:
         return date_str
 
 
-def format_notification(message) -> str:
+def format_notification(message, preview_text: str | None = None) -> str:
     subject = decode_mime(message.get("Subject")) or "(без темы)"
     sender = format_sender(message.get("From", ""))
     date_ru = format_date_ru(message.get("Date", ""))
 
+    preview = (preview_text or "").strip()
+    preview = " ".join(preview.split())
+
+    if preview:
+        if len(preview) > 120:
+            preview = preview[:120].rstrip() + "..."
+        preview = f'"{preview}"'
+    else:
+        preview = '"Нет текста"'
+
     return (
         "📩 Новое письмо\n"
-        f"Тема: {subject}\n"
         f"От: {sender}\n"
         f"Когда: {date_ru}\n"
+        "\n"
+        f"Тема: {subject}\n"
+        f"Содержание: {preview}\n"
+        "\n"
         "Открыть почту: https://mail.yandex.ru"
     )

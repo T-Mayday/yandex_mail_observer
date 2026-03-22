@@ -1,5 +1,3 @@
-# фильтры писем, чтобы не было рассылок
-
 from app.formatter import format_sender
 
 

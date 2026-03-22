@@ -9,17 +9,9 @@ logger = logging.getLogger("mail_observer.bitrix")
 
 
 class Bitrix24WebhookConnector:
-    """
-    Коннектор к Bitrix24 через входящий webhook.
-    Настройки берутся из .env через app.config.settings
-    """
-
     def __init__(self):
         self.webhook_url = settings.bitrix_webhook_url.rstrip("/") + "/" if settings.bitrix_webhook_url else ""
-        self.chat_id = settings.bitrix_chat_id
-        self.chatadm_id_1 = settings.bitrix_admin_id_1
-        self.chatadm_id_2 = settings.bitrix_admin_id_2
-        self.address = settings.bitrix_address
+        self.admin_id_1 = settings.bitrix_admin_id_1
         self.enabled = settings.bitrix_enabled
 
     def is_ready(self) -> bool:
@@ -34,10 +26,7 @@ class Bitrix24WebhookConnector:
 
     def _call(self, method: str, params: Optional[dict] = None) -> dict:
         if not self.webhook_url:
-            return {
-                "error": "bitrix_not_configured",
-                "error_description": "BITRIX_WEBHOOK_URL не задан",
-            }
+            return {"error": "bitrix_not_configured", "error_description": "BITRIX_WEBHOOK_URL не задан"}
 
         url = f"{self.webhook_url}{method}"
         payload = params or {}
@@ -135,10 +124,12 @@ class Bitrix24WebhookConnector:
 
             if res.get("error"):
                 logger.error(
-                    "BX24 im.message.add failed: DIALOG_ID=%s err=%s raw=%s",
+                    "BX24 im.message.add failed: DIALOG_ID=%s error=%s error_description=%s status_code=%s raw=%s",
                     dial,
-                    res.get("error_description") or res.get("error"),
-                    str(res.get("raw") or "")[:200],
+                    res.get("error"),
+                    res.get("error_description"),
+                    res.get("status_code"),
+                    str(res.get("raw") or "")[:500],
                 )
                 continue
 
@@ -147,31 +138,57 @@ class Bitrix24WebhookConnector:
 
         return False, f"FAILED: dialog_id={dialog_id}"
 
-    def send_msg(self, msg: str) -> tuple[bool, str]:
-        logger.info("send_msg -> %s", msg.replace("\n", " | "))
-        if not self.chat_id:
-            return False, "BITRIX_CHAT_ID не задан"
-        return self._send_im_message(self.chat_id, msg, system="N")
-
-    def send_msg_error(self, msg: str) -> tuple[bool, str]:
-        logger.error("send_msg_error -> %s", msg.replace("\n", " | "))
-        if not self.chat_id:
-            return False, "BITRIX_CHAT_ID не задан"
-        return self._send_im_message(self.chat_id, msg, system="N")
-
-    def send_msg_adm(self, msg: str) -> list[tuple[str, bool, str]]:
-        results = []
-
-        for admin_id in [self.chatadm_id_1, self.chatadm_id_2]:
-            if not admin_id:
-                continue
-            ok, dbg = self._send_im_message(admin_id, msg, system="N")
-            results.append((admin_id, ok, dbg))
-
-        return results
-
     def send_msg_user(self, user_id: str | int, msg: str) -> tuple[bool, str]:
         return self._send_im_message(user_id, msg, system="N")
 
-    def get_address(self) -> str:
-        return self.address
+    def send_msg_admin(self, msg: str) -> tuple[bool, str]:
+        if not self.admin_id_1:
+            return False, "BITRIX_ADMIN_ID_1 не задан"
+        return self.send_msg_user(self.admin_id_1, msg)
+
+    def search_users_by_fio(self, query: str, limit: int = 10) -> list[dict]:
+        q = (query or "").strip()
+        if not q:
+            return []
+
+        # Сначала пробуем user.search
+        res = self._call("user.search", {"FIND": q})
+        items = res.get("result") or []
+
+        # Fallback на user.get по частям ФИО
+        if not items:
+            parts = q.split()
+            payload = {"filter": {}, "select": ["ID", "NAME", "LAST_NAME", "SECOND_NAME", "EMAIL", "ACTIVE", "WORK_POSITION"]}
+            if len(parts) >= 1:
+                payload["filter"]["LAST_NAME"] = parts[0]
+            if len(parts) >= 2:
+                payload["filter"]["NAME"] = parts[1]
+            if len(parts) >= 3:
+                payload["filter"]["SECOND_NAME"] = parts[2]
+
+            res = self._call("user.get", payload)
+            items = res.get("result") or []
+
+        out = []
+        for u in items:
+            if str(u.get("ACTIVE", "")).upper() not in {"Y", "1", "TRUE"}:
+                continue
+
+            fio = " ".join(
+                x for x in [
+                    str(u.get("LAST_NAME") or "").strip(),
+                    str(u.get("NAME") or "").strip(),
+                    str(u.get("SECOND_NAME") or "").strip(),
+                ] if x
+            ).strip()
+
+            out.append(
+                {
+                    "id": str(u.get("ID")),
+                    "fio": fio or f"ID {u.get('ID')}",
+                    "email": str(u.get("EMAIL") or "").strip(),
+                    "position": str(u.get("WORK_POSITION") or "").strip(),
+                }
+            )
+
+        return out[:limit]
