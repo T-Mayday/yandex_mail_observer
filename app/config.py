@@ -37,6 +37,12 @@ class Settings:
     web_port: int
     mail_link_secret: str
 
+    web_session_secret: str
+    admin_login_code_ttl_seconds: int
+    admin_session_ttl_seconds: int
+    admin_max_code_attempts: int
+    cookie_secure: bool
+
 
 settings = Settings(
     yandex_email=os.getenv("YANDEX_EMAIL", "").strip(),
@@ -59,4 +65,10 @@ settings = Settings(
     web_host=os.getenv("WEB_HOST", "0.0.0.0").strip(),
     web_port=int(os.getenv("WEB_PORT", "8080")),
     mail_link_secret=os.getenv("MAIL_LINK_SECRET", "").strip(),
+
+    web_session_secret=os.getenv("WEB_SESSION_SECRET", "").strip(),
+    admin_login_code_ttl_seconds=int(os.getenv("ADMIN_LOGIN_CODE_TTL_SECONDS", "300")),
+    admin_session_ttl_seconds=int(os.getenv("ADMIN_SESSION_TTL_SECONDS", "1800")),
+    admin_max_code_attempts=int(os.getenv("ADMIN_MAX_CODE_ATTEMPTS", "5")),
+    cookie_secure=to_bool(os.getenv("COOKIE_SECURE"), False),
 )

@@ -72,6 +72,39 @@ class ProcessedMessageStorage:
                 """
             )
 
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS admin_login_codes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    bitrix_user_id TEXT NOT NULL,
+                    code_hash TEXT NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    used_at INTEGER,
+                    created_at INTEGER NOT NULL
+                )
+                """
+            )
+
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_admin_login_codes_user
+                ON admin_login_codes(bitrix_user_id, created_at DESC)
+                """
+            )
+
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS admin_sessions (
+                    session_token TEXT PRIMARY KEY,
+                    bitrix_user_id TEXT NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    last_seen_at INTEGER NOT NULL
+                )
+                """
+            )
+
     def _now(self) -> str:
         return datetime.now(timezone.utc).isoformat()
 
@@ -227,4 +260,100 @@ class ProcessedMessageStorage:
             conn.execute(
                 "DELETE FROM recipients WHERE bitrix_user_id = ?",
                 (str(bitrix_user_id),),
+            )
+    # ---------- admin auth ----------
+
+    def create_admin_login_code(self, bitrix_user_id: str, code_hash: str, expires_at: int) -> None:
+        now_ts = int(datetime.now(timezone.utc).timestamp())
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM admin_login_codes WHERE bitrix_user_id = ?",
+                (str(bitrix_user_id),),
+            )
+            conn.execute(
+                """
+                INSERT INTO admin_login_codes (
+                    bitrix_user_id, code_hash, expires_at, attempts, used_at, created_at
+                ) VALUES (?, ?, ?, 0, NULL, ?)
+                """,
+                (str(bitrix_user_id), code_hash, int(expires_at), now_ts),
+            )
+
+    def get_latest_admin_login_code(self, bitrix_user_id: str):
+        with self._connect() as conn:
+            return conn.execute(
+                """
+                SELECT *
+                FROM admin_login_codes
+                WHERE bitrix_user_id = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (str(bitrix_user_id),),
+            ).fetchone()
+
+    def increment_admin_login_code_attempts(self, code_id: int) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE admin_login_codes
+                SET attempts = attempts + 1
+                WHERE id = ?
+                """,
+                (int(code_id),),
+            )
+
+    def mark_admin_login_code_used(self, code_id: int) -> None:
+        now_ts = int(datetime.now(timezone.utc).timestamp())
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE admin_login_codes
+                SET used_at = ?
+                WHERE id = ?
+                """,
+                (now_ts, int(code_id)),
+            )
+
+    def create_admin_session(self, bitrix_user_id: str, session_token: str, expires_at: int) -> None:
+        now_ts = int(datetime.now(timezone.utc).timestamp())
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO admin_sessions (
+                    session_token, bitrix_user_id, expires_at, created_at, last_seen_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (session_token, str(bitrix_user_id), int(expires_at), now_ts, now_ts),
+            )
+
+    def get_admin_session(self, session_token: str):
+        with self._connect() as conn:
+            return conn.execute(
+                """
+                SELECT *
+                FROM admin_sessions
+                WHERE session_token = ?
+                LIMIT 1
+                """,
+                (session_token,),
+            ).fetchone()
+
+    def touch_admin_session(self, session_token: str, expires_at: int) -> None:
+        now_ts = int(datetime.now(timezone.utc).timestamp())
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE admin_sessions
+                SET expires_at = ?, last_seen_at = ?
+                WHERE session_token = ?
+                """,
+                (int(expires_at), now_ts, session_token),
+            )
+
+    def delete_admin_session(self, session_token: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM admin_sessions WHERE session_token = ?",
+                (session_token,),
             )
