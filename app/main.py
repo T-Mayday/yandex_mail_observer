@@ -6,6 +6,7 @@ from app.config import settings
 from app.filters import is_mailing
 from app.formatter import decode_mime, format_notification, format_sender
 from app.imap_client import (
+    build_message_view_link,
     connect_mail,
     extract_text_content,
     extract_text_preview,
@@ -16,8 +17,6 @@ from app.imap_client import (
 from app.notifier_bitrix import Bitrix24WebhookConnector
 from app.notifier_console import notify_console
 from app.storage import ProcessedMessageStorage
-
-
 
 logger = logging.getLogger("mail_observer")
 
@@ -122,6 +121,32 @@ def wait_for_runtime_config(storage: ProcessedMessageStorage, bx: Bitrix24Webhoo
         time.sleep(10)
 
 
+def build_letter_link(uid: str) -> str | None:
+    """
+    Собирает подписанную ссылку на просмотр письма.
+    Если не хватает настроек — возвращает None, и formatter даст fallback на mail.yandex.ru
+    """
+    if not settings.public_base_url:
+        logger.warning("PUBLIC_BASE_URL не задан — ссылка на письмо не будет построена.")
+        return None
+
+    if not getattr(settings, "mail_link_secret", ""):
+        logger.warning("MAIL_LINK_SECRET не задан — ссылка на письмо не будет построена.")
+        return None
+
+    try:
+        return build_message_view_link(
+            base_url=settings.public_base_url,
+            uid=uid,
+            secret=settings.mail_link_secret,
+            mailbox="INBOX",
+            ttl_seconds=86400,
+        )
+    except Exception:
+        logger.exception("Не удалось собрать ссылку на письмо uid=%s", uid)
+        return None
+
+
 def process_new_uids(
     mail,
     storage: ProcessedMessageStorage,
@@ -175,7 +200,13 @@ def process_new_uids(
         body_text = extract_text_content(text_source)
         body_preview = extract_text_preview(body_text)
 
-        text = format_notification(message, preview_text=body_preview)
+        letter_link = build_letter_link(uid)
+
+        text = format_notification(
+            message,
+            preview_text=body_preview,
+            letter_link=letter_link,
+        )
         notify_console(text)
 
         delivery_status = "console_notified"
