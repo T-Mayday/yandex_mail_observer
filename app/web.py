@@ -9,7 +9,7 @@ from app.imap_client import (
 )
 from app.notifier_bitrix import Bitrix24WebhookConnector
 from app.storage import ProcessedMessageStorage
-
+from app.formatter import format_date_ru
 app = Flask(__name__)
 
 storage = ProcessedMessageStorage(settings.sqlite_db)
@@ -214,8 +214,6 @@ MAIL_VIEW_HTML = """
     <div class="row"><span class="label">От:</span> {{ meta["from"] or "—" }}</div>
     <div class="row"><span class="label">Кому:</span> {{ meta["to"] or "—" }}</div>
     <div class="row"><span class="label">Дата:</span> {{ meta["date"] or "—" }}</div>
-    <div class="row"><span class="label">UID:</span> {{ meta["uid"] or "—" }}</div>
-    <div class="row"><span class="label">Message-ID:</span> {{ meta["message_id"] or "—" }}</div>
 
     <div class="text">{{ meta["text"] or "(не удалось извлечь текст письма)" }}</div>
   </div>
@@ -346,6 +344,7 @@ def view_mail(uid: str):
             abort(404)
 
         meta = extract_message_meta(message, uid=uid)
+        meta["date"] = format_date_ru(meta.get("date", ""))
         return render_template_string(MAIL_VIEW_HTML, meta=meta)
     finally:
         try:
