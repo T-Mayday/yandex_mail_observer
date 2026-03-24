@@ -114,6 +114,7 @@ def format_notification(
         "\n"
         f"Тема: {subject}\n"
         f"Содержание: {preview}\n"
+        f"Открыть почту: https://mail.yandex.ru"
         "\n"
         f"{open_line}"
     )
