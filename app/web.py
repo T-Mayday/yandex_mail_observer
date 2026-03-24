@@ -268,7 +268,7 @@ MAIL_VIEW_HTML = """
     <div class="row"><span class="label">От:</span> {{ meta["from"] or "—" }}</div>
     <div class="row"><span class="label">Кому:</span> {{ meta["to"] or "—" }}</div>
     <div class="row"><span class="label">Дата:</span> {{ meta["date"] or "—" }}</div>
-    <div class="row"><span class="label">Открыть почту: https://mail.yandex.ru</span></div>
+    <div class="row"><span class="label">Открыть почту: <a href="https://mail.yandex.ru" >https://mail.yandex.ru</a></span></div>
 
     <div class="text">{{ meta["text"] or "(не удалось извлечь текст письма)" }}</div>
   </div>
