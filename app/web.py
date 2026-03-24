@@ -1,4 +1,3 @@
-import abort
 import hashlib
 import hmac
 import secrets
@@ -6,10 +5,10 @@ import time
 from functools import wraps
 from urllib.parse import urlencode
 
-from flask import Flask, jsonify, redirect, render_template_string, request, make_response
+from flask import Flask, jsonify, redirect, render_template_string, request, abort, make_response
 
 from app.config import settings
-from app.formatter import format_date_ru_full
+from app.formatter import format_date_ru
 from app.imap_client import (
     connect_mail,
     extract_message_meta,
@@ -612,7 +611,7 @@ def view_mail(uid: str):
             abort(404)
 
         meta = extract_message_meta(message, uid=uid)
-        meta["date"] = format_date_ru_full(meta.get("date", ""))
+        meta["date"] = format_date_ru(meta.get("date", ""))
         return render_template_string(MAIL_VIEW_HTML, meta=meta)
     finally:
         try:
