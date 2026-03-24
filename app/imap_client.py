@@ -1,13 +1,25 @@
 import email
+import hashlib
+import hmac
 import html
 import imaplib
 import re
+import time
+from email.header import decode_header
+from email.utils import parseaddr
 
 
-def connect_mail(host: str, port: int, user_email: str, app_password: str):
+def connect_mail(
+    host: str,
+    port: int,
+    user_email: str,
+    app_password: str,
+    mailbox: str = "INBOX",
+    readonly: bool = True,
+):
     mail = imaplib.IMAP4_SSL(host, port, timeout=30)
     mail.login(user_email, app_password)
-    mail.select("INBOX")
+    mail.select(mailbox, readonly=readonly)
     return mail
 
 
@@ -20,7 +32,7 @@ def get_all_uids(mail) -> set[str]:
     if isinstance(raw, bytes):
         raw = raw.decode(errors="ignore")
 
-    return set(raw.split())
+    return set(x for x in raw.split() if x)
 
 
 def fetch_headers_by_uid(mail, uid: str):
@@ -41,7 +53,7 @@ def fetch_headers_by_uid(mail, uid: str):
 
 
 def fetch_full_message_by_uid(mail, uid: str):
-    status, msg_data = mail.uid("fetch", uid, "(RFC822)")
+    status, msg_data = mail.uid("fetch", uid, "(BODY.PEEK[])")
     if status != "OK" or not msg_data:
         return None
 
@@ -132,3 +144,100 @@ def extract_text_preview(text: str, max_len: int = 400) -> str:
         return text
 
     return text[:max_len].rstrip() + "…"
+
+
+def decode_mime_header(value: str | None) -> str:
+    if not value:
+        return ""
+
+    parts = decode_header(value)
+    result = []
+
+    for chunk, enc in parts:
+        if isinstance(chunk, bytes):
+            decoded = None
+            for charset in (enc, "utf-8", "cp1251", "koi8-r", "latin1"):
+                if not charset:
+                    continue
+                try:
+                    decoded = chunk.decode(charset, errors="replace")
+                    break
+                except Exception:
+                    pass
+            if decoded is None:
+                decoded = chunk.decode("utf-8", errors="replace")
+            result.append(decoded)
+        else:
+            result.append(chunk)
+
+    return "".join(result).strip()
+
+
+def decode_address_header(value: str | None) -> str:
+    if not value:
+        return ""
+
+    name, addr = parseaddr(value)
+    name = decode_mime_header(name)
+
+    if name and addr:
+        return f"{name} <{addr}>"
+    return addr or name or ""
+
+
+def extract_message_meta(message, uid: str = "") -> dict:
+    subject = decode_mime_header(message.get("Subject"))
+    from_value = decode_address_header(message.get("From"))
+    to_value = decode_address_header(message.get("To"))
+    date_value = decode_mime_header(message.get("Date"))
+    message_id = decode_mime_header(message.get("Message-ID"))
+    text = extract_text_content(message)
+    preview = extract_text_preview(text, max_len=500)
+
+    return {
+        "uid": uid,
+        "subject": subject,
+        "from": from_value,
+        "to": to_value,
+        "date": date_value,
+        "message_id": message_id,
+        "text": text,
+        "preview": preview,
+    }
+
+
+def _build_signature(secret: str, uid: str, mailbox: str, expires: int) -> str:
+    payload = f"{uid}|{mailbox}|{expires}".encode("utf-8")
+    return hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+
+
+def build_message_view_link(
+    base_url: str,
+    uid: str,
+    secret: str,
+    mailbox: str = "INBOX",
+    ttl_seconds: int = 86400,
+) -> str:
+    base_url = (base_url or "").rstrip("/")
+    expires = int(time.time()) + int(ttl_seconds)
+    sig = _build_signature(secret, uid, mailbox, expires)
+    return f"{base_url}/mail/{uid}?mb={mailbox}&e={expires}&s={sig}"
+
+
+def verify_message_view_link(
+    uid: str,
+    mailbox: str,
+    expires: str,
+    signature: str,
+    secret: str,
+) -> bool:
+    try:
+        expires_int = int(expires)
+    except Exception:
+        return False
+
+    if expires_int < int(time.time()):
+        return False
+
+    expected = _build_signature(secret, uid, mailbox, expires_int)
+    return hmac.compare_digest(expected, signature or "")
