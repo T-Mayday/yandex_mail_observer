@@ -7,6 +7,7 @@ import re
 import time
 from email.header import decode_header
 from email.utils import parseaddr
+from urllib.parse import quote, quote_plus
 
 
 def connect_mail(
@@ -221,7 +222,11 @@ def build_message_view_link(
     base_url = (base_url or "").rstrip("/")
     expires = int(time.time()) + int(ttl_seconds)
     sig = _build_signature(secret, uid, mailbox, expires)
-    return f"{base_url}/mail/{uid}?mb={mailbox}&e={expires}&s={sig}"
+
+    return (
+        f"{base_url}/mail/{quote(str(uid), safe='')}"
+        f"?mb={quote_plus(str(mailbox))}&e={expires}&s={sig}"
+    )
 
 
 def verify_message_view_link(
@@ -231,6 +236,12 @@ def verify_message_view_link(
     signature: str,
     secret: str,
 ) -> bool:
+    if not str(uid).isdigit():
+        return False
+
+    if mailbox != "INBOX":
+        return False
+
     try:
         expires_int = int(expires)
     except Exception:

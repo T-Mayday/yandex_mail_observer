@@ -1,30 +1,21 @@
-from flask import Flask, Response, abort, jsonify, redirect, render_template_string, request
+from flask import Flask, jsonify, redirect, render_template_string, request, abort
 
 from app.config import settings
-from app.notifier_bitrix import Bitrix24WebhookConnector
-from app.storage import ProcessedMessageStorage
 from app.imap_client import (
     connect_mail,
     extract_message_meta,
     fetch_full_message_by_uid,
     verify_message_view_link,
 )
-
-# from config import settings
-# from notifier_bitrix import Bitrix24WebhookConnector
-# from storage import ProcessedMessageStorage
-# from imap_client import (
-#     connect_mail,
-#     extract_message_meta,
-#     fetch_full_message_by_uid,
-#     verify_message_view_link,
-# )
+from app.notifier_bitrix import Bitrix24WebhookConnector
+from app.storage import ProcessedMessageStorage
 
 app = Flask(__name__)
 
 storage = ProcessedMessageStorage(settings.sqlite_db)
 storage.init_db()
 bx = Bitrix24WebhookConnector()
+
 
 HTML = """
 <!doctype html>
@@ -162,6 +153,7 @@ async function removeRecipient(id) {
 </html>
 """
 
+
 MAIL_VIEW_HTML = """
 <!doctype html>
 <html lang="ru">
@@ -232,61 +224,14 @@ MAIL_VIEW_HTML = """
 """
 
 
-def valid_token_or_404(token: str):
+def valid_token(token: str) -> bool:
     real = storage.get_or_create_setup_token()
-    if token != real:
-        return False
-    return True
+    return token == real
 
 
 @app.get("/healthz")
 def healthz():
     return {"status": "ok"}
-
-
-@app.get("/mail/<uid>")
-def view_mail(uid: str):
-    mailbox = (request.args.get("mb") or "INBOX").strip() or "INBOX"
-    expires = (request.args.get("e") or "").strip()
-    signature = (request.args.get("s") or "").strip()
-
-    secret = storage.get_or_create_setup_token()
-    if not verify_message_view_link(uid, mailbox, expires, signature, secret):
-        return abort(403)
-
-    cfg = storage.get_runtime_config()
-    yandex_email = (cfg.get("yandex_email") or "").strip()
-    yandex_app_password = (cfg.get("yandex_app_password") or "").strip()
-
-    if not yandex_email or not yandex_app_password:
-        return Response("Yandex credentials are not configured", status=500)
-
-    mail = None
-    try:
-        mail = connect_mail(
-            host="imap.yandex.com",
-            port=993,
-            user_email=yandex_email,
-            app_password=yandex_app_password,
-            mailbox=mailbox,
-            readonly=True,
-        )
-
-        message = fetch_full_message_by_uid(mail, uid)
-        if not message:
-            return abort(404)
-
-        meta = extract_message_meta(message, uid=uid)
-        return render_template_string(MAIL_VIEW_HTML, meta=meta)
-
-    except Exception as e:
-        return Response(f"failed to open message: {e}", status=500)
-    finally:
-        if mail is not None:
-            try:
-                mail.logout()
-            except Exception:
-                pass
 
 
 @app.get("/")
@@ -297,7 +242,7 @@ def root():
 
 @app.get("/setup/<token>")
 def setup_page(token: str):
-    if not valid_token_or_404(token):
+    if not valid_token(token):
         return "invalid token", 404
 
     cfg = storage.get_runtime_config()
@@ -315,7 +260,7 @@ def setup_page(token: str):
 
 @app.post("/setup/<token>/save-settings")
 def save_settings(token: str):
-    if not valid_token_or_404(token):
+    if not valid_token(token):
         return "invalid token", 404
 
     yandex_email = (request.form.get("yandex_email") or "").strip()
@@ -327,7 +272,7 @@ def save_settings(token: str):
 
 @app.get("/setup/<token>/api/search-users")
 def api_search_users(token: str):
-    if not valid_token_or_404(token):
+    if not valid_token(token):
         return jsonify({"ok": False, "error": "invalid token"}), 404
 
     q = (request.args.get("q") or "").strip()
@@ -337,7 +282,7 @@ def api_search_users(token: str):
 
 @app.post("/setup/<token>/api/recipients/add")
 def api_add_recipient(token: str):
-    if not valid_token_or_404(token):
+    if not valid_token(token):
         return jsonify({"ok": False, "error": "invalid token"}), 404
 
     data = request.get_json(silent=True) or {}
@@ -354,7 +299,7 @@ def api_add_recipient(token: str):
 
 @app.post("/setup/<token>/api/recipients/remove")
 def api_remove_recipient(token: str):
-    if not valid_token_or_404(token):
+    if not valid_token(token):
         return jsonify({"ok": False, "error": "invalid token"}), 404
 
     data = request.get_json(silent=True) or {}
@@ -365,6 +310,52 @@ def api_remove_recipient(token: str):
 
     storage.delete_recipient(bitrix_user_id)
     return jsonify({"ok": True})
+
+
+@app.get("/mail/<uid>")
+def view_mail(uid: str):
+    mailbox = (request.args.get("mb") or "INBOX").strip()
+    expires = (request.args.get("e") or "").strip()
+    signature = (request.args.get("s") or "").strip()
+
+    if not settings.mail_link_secret:
+        return "MAIL_LINK_SECRET не задан", 500
+
+    if not verify_message_view_link(uid, mailbox, expires, signature, settings.mail_link_secret):
+        abort(403)
+
+    cfg = storage.get_runtime_config()
+    yandex_email = cfg["yandex_email"]
+    yandex_app_password = cfg["yandex_app_password"]
+
+    if not yandex_email or not yandex_app_password:
+        return "Yandex settings are not configured", 500
+
+    mail = connect_mail(
+        host=settings.imap_host,
+        port=settings.imap_port,
+        user_email=yandex_email,
+        app_password=yandex_app_password,
+        mailbox=mailbox,
+        readonly=True,
+    )
+
+    try:
+        message = fetch_full_message_by_uid(mail, uid)
+        if not message:
+            abort(404)
+
+        meta = extract_message_meta(message, uid=uid)
+        return render_template_string(MAIL_VIEW_HTML, meta=meta)
+    finally:
+        try:
+            mail.close()
+        except Exception:
+            pass
+        try:
+            mail.logout()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

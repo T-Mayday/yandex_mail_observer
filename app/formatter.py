@@ -82,7 +82,11 @@ def format_date_ru(date_str: str) -> str:
         return date_str
 
 
-def format_notification(message, preview_text: str | None = None) -> str:
+def format_notification(
+    message,
+    preview_text: str | None = None,
+    letter_link: str | None = None,
+) -> str:
     subject = decode_mime(message.get("Subject")) or "(без темы)"
     sender = format_sender(message.get("From", ""))
     date_ru = format_date_ru(message.get("Date", ""))
@@ -97,6 +101,12 @@ def format_notification(message, preview_text: str | None = None) -> str:
     else:
         preview = '"Нет текста"'
 
+    open_line = (
+        f"Открыть письмо: {letter_link}"
+        if letter_link
+        else "Открыть почту: https://mail.yandex.ru"
+    )
+
     return (
         "📩 Новое письмо\n"
         f"От: {sender}\n"
@@ -105,5 +115,5 @@ def format_notification(message, preview_text: str | None = None) -> str:
         f"Тема: {subject}\n"
         f"Содержание: {preview}\n"
         "\n"
-        "Открыть почту: https://mail.yandex.ru"
+        f"{open_line}"
     )
